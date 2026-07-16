@@ -1,0 +1,237 @@
+<html>
+<head>
+  <meta charset="UTF-8"/>
+  <title>Image Board</title>
+  
+  <script src="https://cdn.jsdelivr.net/npm/gun/gun.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gun/sea.js"></script>
+  
+  <style type="text/css">
+    /* FORCE 90s AESTHETIC - Overriding modern browser defaults */
+    body, td, th {
+      font-family: "MS PGothic", "IPAMonaPGothic", "Mona", "sans-serif";
+      font-size: 10pt;
+    }
+    body {
+      margin: 8px;
+    }
+    a { text-decoration: none; }
+    a:hover { color: #DD0000; }
+    
+    /* Hard, flat borders for inputs */
+    input[type=text], input[type=password], textarea, input[type=file] {
+      border: 1px solid #7F9DB9;
+      background-color: #FFFFFF;
+      font-family: "MS PGothic", "sans-serif";
+      font-size: 10pt;
+      padding: 2px;
+    }
+    input[type=submit], input[type=button] {
+      background-color: #D4D0C8; /* Classic Windows 98 gray */
+      border: 2px outset #FFFFFF;
+      font-family: "MS PGothic", "sans-serif";
+      font-size: 10pt;
+      padding: 1px 6px;
+    }
+    input[type=submit]:active, input[type=button]:active {
+      border: 2px inset #FFFFFF;
+    }
+    
+    /* Classic Blockquote styling for Futaba */
+    blockquote {
+      margin-top: 1em;
+      margin-bottom: 1em;
+      margin-left: 3em;
+      margin-right: 3em;
+    }
+    
+    /* Utility */
+    .post-container { margin-bottom: 8px; }
+  </style>
+</head>
+<body bgcolor="#FFFFEE" text="#800000" link="#0000EE" vlink="#0000EE" alink="#FF0000">
+  
+  <table width="100%" border="0" cellspacing="0" cellpadding="0">
+    <tr>
+      <td align="right" valign="top">
+        [<a href="./" target="_top">Home</a>][<a href="#">Admin</a>]
+      </td>
+    </tr>
+  </table>
+  
+  <p align=center><font color="#800000" size=5><b><span>Image Board</span></b></font></p>
+  <hr width="90%" size=1>
+  
+  <center>
+    <form id="postForm" onsubmit="submitThread(event)" style="margin: 0px;">
+      <table cellpadding=1 cellspacing=1>
+        <tr>
+          <td bgcolor=#eeaa88><b>Name</b></td>
+          <td><input type=text id=name size="28" value=""></td>
+        </tr>
+        <tr>
+          <td bgcolor=#eeaa88><b>E-mail</b></td>
+          <td><input type=text id=email size="28" value=""></td>
+        </tr>
+        <tr>
+          <td bgcolor=#eeaa88><b>Subject</b></td>
+          <td>
+            <input type=text id=sub size="35">
+            <input type=submit value="Submit">
+          </td>
+        </tr>
+        <tr>
+          <td bgcolor=#eeaa88><b>Comment</b></td>
+          <td><textarea id=com cols="48" rows="4" wrap=soft required></textarea></td>
+        </tr>
+        <tr>
+          <td bgcolor=#eeaa88><b>File</b></td>
+          <td>
+            <input type=file id=upfile size="35" disabled>
+            [<label><input type=checkbox id=textonly value=on checked>No Image</label>]
+          </td>
+        </tr>
+        <tr>
+          <td bgcolor=#eeaa88><b>Password</b></td>
+          <td>
+            <input type=password id=pwd size=8 maxlength=8 value="">
+            <small>(For post deletion. 8 chars max)</small>
+          </td>
+        </tr>
+        <tr>
+          <td colspan=2>
+            <small>
+              <ul style="margin-top:0; margin-bottom:0; padding-left: 1.5em;">
+                <li>Supported files: GIF, JPG, PNG.</li>
+                <li>Max file size is 500 KB.</li>
+                <li>Images greater than 250x250 pixels will be thumbnailed.</li>
+              </ul>
+            </small>
+          </td>
+        </tr>
+      </table>
+    </form>
+  </center>
+  
+  <hr>
+
+  <form id="boardForm" style="margin: 0px;">
+    <div id="board"></div>
+  </form>
+
+  <hr>
+  <table align=right>
+    <tr>
+      <td nowrap align=center>
+        <input type=hidden name=mode value=usrdel>【Delete Post】[<input type=checkbox name=onlyimgdel value=on>Image Only]<br>
+        Password <input type=password name=pwd size=8 maxlength=8 value="">
+        <input type=button value="Delete" onclick="alert('Delete functionality requires extra GunDB logic.')">
+      </td>
+    </tr>
+  </table>
+  
+  <table align=left border=1>
+    <tr><td bgcolor="#eeaa88">First Page</td><td>[<b>0</b>] </td><td bgcolor="#eeaa88">Last Page</td></tr>
+  </table>
+  
+  <br clear=all>
+  <center><small>- <a href="#" target=_top>GazouBBS</a> + <a href="#" target=_top>futaba</a> + GunDB -</small></center>
+
+  <script>
+    // Initialize Gun with a working public relay for instant P2P Sync
+    const gun = Gun(['https://gun-rs.iris.to/gun']);
+    const board = gun.get('futaba_gundb_board_v2');
+
+    // Utility: Format timestamp (YY/MM/DD(Day)HH:MM)
+    function formatDate(ms) {
+      const d = new Date(ms);
+      const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      const pad = (n) => n.toString().padStart(2, '0');
+      
+      const yy = d.getFullYear().toString().slice(-2);
+      const mm = pad(d.getMonth() + 1);
+      const dd = pad(d.getDate());
+      const day = days[d.getDay()];
+      const hh = pad(d.getHours());
+      const min = pad(d.getMinutes());
+      
+      return `${yy}/${mm}/${dd}(${day})${hh}:${min}`;
+    }
+
+    // --- WRITE LOGIC ---
+    async function submitThread(event) {
+      event.preventDefault();
+
+      const nameInput = document.getElementById('name').value.trim() || 'Anonymous';
+      const subInput = document.getElementById('sub').value.trim();
+      const comInput = document.getElementById('com').value.trim();
+      
+      if (!comInput) return;
+
+      const ephemeralKey = await SEA.pair();
+      const numericId = Math.floor(Date.now() / 1000).toString().slice(-6);
+      
+      const postData = {
+        id_num: numericId,
+        name: nameInput,
+        subject: subInput,
+        comment: comInput,
+        timestamp: Date.now()
+      };
+
+      const signedData = await SEA.sign(postData, ephemeralKey);
+      const randomStr = Math.random().toString(36).substring(2, 6);
+      const postNodeId = 'post_' + numericId + '_' + randomStr;
+      
+      // Store payload WITH public key so clients can verify
+      const nodePayload = {
+        pubKey: ephemeralKey.pub,
+        message: signedData
+      };
+
+      gun.get(postNodeId).put(nodePayload);
+      board.set(gun.get(postNodeId));
+
+      // Reset form visually
+      document.getElementById('com').value = '';
+    }
+
+    // --- READ LOGIC ---
+    function listenToBoard() {
+      const boardDiv = document.getElementById('board');
+      
+      board.map().on(async (nodeData, id) => {
+        if (!nodeData || !nodeData.message || !nodeData.pubKey) return;
+
+        const post = await SEA.verify(nodeData.message, nodeData.pubKey);
+        if (!post) return; 
+        if (document.getElementById(id)) return;
+
+        // Build the classic Futaba OP element
+        const postWrapper = document.createElement('div');
+        postWrapper.id = id;
+        postWrapper.className = 'post-container';
+        
+        // Exact formatting of a Futaba post without an image
+        postWrapper.innerHTML = `
+          <input type=checkbox name="${post.id_num}" value=delete>
+          <font color="#cc1105" size="+1"><b>${post.subject || ''}</b></font> 
+          Name <font color="#117743"><b>${post.name}</b></font> 
+          ${formatDate(post.timestamp)} 
+          No.${post.id_num} &nbsp; 
+          [<a href="javascript:void(0);">Reply</a>]
+          <blockquote>
+            ${post.comment.replace(/\n/g, '<br>')}
+          </blockquote>
+          <br clear=left>
+          <hr>
+        `;
+
+        boardDiv.insertBefore(postWrapper, boardDiv.firstChild);
+      });
+    }
+
+    listenToBoard();
+  </script>
+</body>
+</html>
